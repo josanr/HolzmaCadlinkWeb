@@ -20,8 +20,12 @@ type RetJSON struct {
 	Good_id string
 }
 
+func main() {
+	http.HandleFunc("/", mainAction)
+	http.ListenAndServe(":8000", nil)
+}
 
-func hello(w http.ResponseWriter, req *http.Request) {
+func mainAction(w http.ResponseWriter, req *http.Request) {
 	req.ParseForm()
 	path:="d:/temp/"
 	commandLine:="d:/cadv41/bin/cadlink"
@@ -109,7 +113,3 @@ func hello(w http.ResponseWriter, req *http.Request) {
 
 }
 
-func main() {
-	http.HandleFunc("/", hello)
-	http.ListenAndServe(":8000", nil)
-}
