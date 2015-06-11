@@ -5,11 +5,21 @@ import "path/filepath"
 
 import (
 	"fmt"
-	"os/exec"
+//	"os/exec"
 	"os"
 	"io/ioutil"
 	"net/http"
 	"encoding/json"
+	"math/rand"
+	"strconv"
+	"time"
+//	"bytes"
+	"strings"
+	"code.google.com/p/go-charset/charset"
+	_ "code.google.com/p/go-charset/data"
+
+	"bytes"
+	"io"
 )
 
 type RetJSON struct {
@@ -20,96 +30,141 @@ type RetJSON struct {
 	Good_id string
 }
 
-func main() {
-	http.HandleFunc("/", mainAction)
-	http.ListenAndServe(":8000", nil)
-}
+
+
 
 func mainAction(w http.ResponseWriter, req *http.Request) {
 	req.ParseForm()
-	path:="d:/temp/"
-	commandLine:="d:/cadv41/bin/cadlink"
+
+	//	commandLine:="d:/cadv41/bin/cadlink"
 
 	if req.Method == "GET" {
 		retStr, _:=json.Marshal(RetJSON{Error: 1, Value:"Error in request method"})
 		fmt.Fprintf(w, string(retStr))
 		return
 	} else {
-
+		rand.Seed(time.Now().UnixNano())
 		str:=req.FormValue("str")
-		sawFileName:=req.FormValue("name")
 		tool_id:=req.FormValue("tool_id")
 		good_id:=req.FormValue("good_id")
-		list, err:=filepath.Glob(path + "*.ptx");
-		if err==nil{
-			for x:=0; x<len(list);x=x+1{
-				os.Remove(list[x])
-			}
-		}
-		list, err=filepath.Glob(path + "*.saw");
-		if err==nil{
-			for x:=0; x<len(list);x=x+1{
-				os.Remove(list[x])
-			}
-		}
-		list, err=filepath.Glob(path + "*.rlt");
-		if err==nil{
-			for x:=0; x<len(list);x=x+1{
-				os.Remove(list[x])
-			}
-		}
-
-		dec, err:= b64.StdEncoding.DecodeString(str)
-		if err!=nil{
-			retStr, _:=json.Marshal(RetJSON{Error: 1, Value:"Error in base64 string"})
+		var sawFileName string = ""
+		var tempFolder string = "temp"
+		_ =strconv.Itoa(rand.Int())
+		var err error
+		var path string = "d:\\temp\\optim\\"+tempFolder+"\\"
+		var fileLines []string
+		//defer os.RemoveAll(path + tempFolder)
+		var exitName string
+		_, err=filepath.Glob(path + "*.ptx");
+		var resSaw string
+		//decode file
+		dec, err := b64.StdEncoding.DecodeString(str)
+		if err!=nil {
+			retStr, _ := json.Marshal(RetJSON{Error: 1, Value:"Error in base64 string"})
 			fmt.Fprintf(w, string(retStr))
-
 			return
 		}
+		fileLines=strings.Split(string(dec), "\n")
+		for _, line := range (fileLines) {
+			rows := strings.Split(line, ",")
+			if (rows[0]=="JOBS") {
+				exitName=rows[2]
+				break
+			}
+		}
+		r, err := charset.NewReader("windows-1251", bytes.NewBufferString(exitName))
+		if err != nil {
+			fmt.Println(err)
+		}
+		f, err := ioutil.ReadAll(r)
+		if err != nil {
+			fmt.Println(err)
+		}
+		sawFileName=string(f)
 
-		err = ioutil.WriteFile(path + "file.ptx", dec, 0644)
-		if err!=nil{
+		//create random folder
+		if err = os.Mkdir(path, 0777); err!=nil {
+			//			retStr, _:=json.Marshal(RetJSON{Error: 1, Value:"Couldn't create temporary folder"})
+			//			fmt.Fprintf(w, string(retStr))
+			//			return
+		}
+
+		//create ptx file
+		if err = ioutil.WriteFile(path  + "/file.ptx", dec, 0644); err!=nil {
 			retStr, _:=json.Marshal(RetJSON{Error: 1, Value:"Couldn't create ptx file"})
 			fmt.Fprintf(w, string(retStr))
-			os.Remove(path + "file.ptx")
 			return
 		}
 
 
+		//		comm, err := exec.Command(commandLine, path + "file.pt*")
+		//		cmd, err:= exec.Command("cmd", "/C", `copy /Y "d:\temp\optim\02_06_2015 1.saw" "d:\temp\optim\temp\optim.saw"`).CombinedOutput()
+		//		if err != nil {
+		//			retStr, _:=json.Marshal(RetJSON{Error: 1, Value:"Couldn't start cadlink", Good_id:err.Error(), File:sawFileName})
+		//			fmt.Fprint(w, string(retStr))
+		//			fmt.Println(err)
+		//			fmt.Println(string(cmd))
+		//			return
+		//		}
 
-		comm, err := exec.Command(commandLine, path + "file.pt*").CombinedOutput()
+		//testing block
+		/*
+		TOTO remove on production
+		 */
+		err=genSaw(sawFileName)
 		if err != nil {
-
-			retStr, _:=json.Marshal(RetJSON{Error: 1, Value:"Couldn't start cadlink", Good_id:err.Error(), File:string(comm)})
+			retStr, _ := json.Marshal(RetJSON{Error: 1, Value:"Couldn't gen saw file", File:""})
 			fmt.Fprintf(w, string(retStr))
 			return
 		}
 
-		//		fmt.Println(path +  sawFileName + ".saw")
-		resSaw:=""
 		saw, err := ioutil.ReadFile(path + sawFileName + ".saw")
 		if err == nil {
 			resSaw = b64.StdEncoding.EncodeToString(saw)
-		}
-
-		resultf, err := ioutil.ReadFile(path + "file.rlt")
-		if err != nil {
-			retStr, _:=json.Marshal(RetJSON{Error: 1, Value:"Couldn't read created rlt file"})
+			retStr, _ := json.Marshal(RetJSON{Error: 0, Value:"Success", File:string(resSaw), Tool_id:tool_id, Good_id:good_id})
 			fmt.Fprintf(w, string(retStr))
-			os.Remove(path + "file.rlt")
-			os.Remove(path + sawFileName + ".saw")
 			return
 		}
 
+		resultf, err := ioutil.ReadFile(path + sawFileName+ ".rlt")
+		if err != nil {
+			retStr, _ := json.Marshal(RetJSON{Error: 1, Value:"Couldn't read created rlt file", File:""})
+			fmt.Fprintf(w, string(retStr))
+			return
+		}
 
-
-		retStr, _:=json.Marshal(RetJSON{Error: 0, Value:string(resultf), File:string(resSaw), Tool_id:tool_id, Good_id:good_id})
+		retStr, _ := json.Marshal(RetJSON{Error: 1, Value:"Got rlt file, better try to repair known bugs", File:b64.StdEncoding.EncodeToString(resultf)})
 		fmt.Fprintf(w, string(retStr))
-		os.Remove(path + "file.ptx")
-		os.Remove(path + "file.rlt")
-		os.Remove(path + sawFileName + ".saw")
+		return
 	}
 	req.Body.Close()
 
+
 }
 
+func main() {
+	http.HandleFunc("/ptxsaw", mainAction)
+	http.ListenAndServe(":5684", nil)
+}
+
+
+func genSaw(sawFileName string) error {
+	s, err := os.Open("d:\\temp\\optim\\02_06_2015 1.saw")
+	defer s.Close()
+	if err != nil {
+		return err
+	}
+
+	d, err := os.Create("d:\\temp\\optim\\temp\\"+sawFileName +".rlt")
+	defer d.Close()
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(d, s); err != nil {
+		return err
+
+	}
+	err=nil
+	return err
+
+}
